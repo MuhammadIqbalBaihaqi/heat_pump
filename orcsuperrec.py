@@ -37,6 +37,12 @@ def orcsuperrec(fluid, hs_fluid, cs_fluid, T_hs_in, T_cs_in, T_pinch_hs_in, T_pi
         p_cs_in (float): Inlet pressure of the cold source [Pa].
 
     Returns:
+        tuple: A tuple containing:
+            - dict: Ideal cycle state properties (enthalpy, temperature, pressure, entropy, quality).
+            - dict: Real cycle state properties (enthalpy, temperature, pressure, entropy).
+            - dict: Heat source temperature profile.
+            - dict: Cold source temperature profile.
+            - dict: Enthalpy profiles for heat source and cold source.
 
     """
 
