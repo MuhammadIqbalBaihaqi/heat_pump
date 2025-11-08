@@ -255,14 +255,12 @@ def mass_flow_calc(wf_mass_flow, H_list, H_hs_list, H_cs_list):
     cs_mass_flow = wf_mass_flow * (H_list[4] - H_list[6]) / (H_cs_list[0] - H_cs_list[-1])
     return hs_mass_flow, cs_mass_flow
 
-def calc_thermal_efficiency(H_list, wf_mass_flow, T0, T_hs_in):
+def calc_thermal_efficiency(H_list, wf_mass_flow):
     """
     Calculate the thermal efficiency of the ORC Superheat Recuperated cycle.
     Args:
         H_list (list): List of enthalpy values at key states in the cycle [kJ/kg].
         wf_mass_flow (float): Mass flow rate of the working fluid [kg/s].
-        T0 (float): Ambient temperature for exergy calculations [K].
-        T_hs_in (float): Inlet temperature of the heat source [K].
     Returns:
         eta_thermal (float): Thermal efficiency of the cycle.
         eta_exergy (float): Exergy efficiency of the cycle.
@@ -270,12 +268,12 @@ def calc_thermal_efficiency(H_list, wf_mass_flow, T0, T_hs_in):
         Q_dot_in (float): Heat input to the cycle [kW].
     """
     # First Law Efficiency Calculation
-    W_dot_net = (H_list[2] - H_list[3]) - (H_list[7] - H_list[6]) # (EXP work) - (PMP work)
-    Q_dot_in = H_list[2] - H_list[8] # Difference between SUP out and LH in
+    W_dot_net = (H_list[2] - H_list[3]) - (H_list[-2] - H_list[-3]) # (EXP work) - (PMP work)
+    Q_dot_in = H_list[2] - H_list[-1] # Difference between SUP out and LH in
     eta_thermal = W_dot_net / Q_dot_in
 
-    # Second Law Efficiency Calculation (Exergy Efficiency)
-    eta_carnot = 1 - (T0 / T_hs_in)
-    eta_exergy = eta_thermal / eta_carnot
-    return eta_thermal, eta_exergy, W_dot_net * wf_mass_flow, Q_dot_in * wf_mass_flow
+    return {"eta_thermal": eta_thermal,
+            "W_dot_net": W_dot_net * wf_mass_flow,
+            "Q_dot_in": Q_dot_in * wf_mass_flow
+            }
 
