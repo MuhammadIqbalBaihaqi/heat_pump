@@ -447,14 +447,14 @@ def mass_flow_calculation_revised(
     wh_mass_flow,
     cpr_pwr, 
     T_wh_in, 
-    T_sf_dict, 
-    h_list, 
     p_wh, 
-    p_sf=101325, 
-    hs_fluid='Water'
+    p_sf, 
+    wh_fluid,
+    sf_fluid,
+    results
 ):
     """
-    Calculate mass flow rates and outlet temperatures for the real heat pump cycle.
+    Calculate secondary mass flow rates and outlet temperatures for waste heat outlet.
     
     Parameters
     ----------
@@ -464,16 +464,16 @@ def mass_flow_calculation_revised(
         Compressor power input [kW].
     T_wh_in : float
         Inlet temperature of the water heating side [K].
-    T_sf_dict : dict
-        Dictionary with secondary fluid inlet and outlet temperatures {'T_sf_in', 'T_sf_out'} [K].
-    h_list : list of float
-        Real enthalpy values at states 1, 2, 3, 4 [J/kg].
     p_wh : float
         Pressure of the water heating side [Pa].
     p_sf : float, optional
-        Pressure of the secondary fluid side [Pa]. Default is 101325 Pa.
-    hs_fluid : str, optional
-        Fluid for the heat sink/source. Default is 'Water'.
+        Pressure of the secondary fluid side [Pa]. 
+    wh_fluid : str, optional
+        Waste heat fluid. 
+    sf_fluid : str, optional
+        Fluid for the secondary fluid side. 
+    dict_main : dict, optional
+        Main dictionary containing cycle data from hp_rec_after_cds method.
     
     Returns
     -------
@@ -487,23 +487,23 @@ def mass_flow_calculation_revised(
         - 'h_sf_in': Inlet enthalpy of the secondary fluid [J/kg].
         - 'h_sf_out': Outlet enthalpy of the secondary fluid [J/kg].
     """
-    # Calculate working fluid mass flow based on compressor power
-    wf_mass_flow = cpr_pwr * 1000 / (h_list[1] - h_list[0])
-    
+    # Extract necessary data from dict_main
+    wf_mass_flow = results[2]["wf_mass_flow"]
+    h_list = results[0]["H_r"]
+    T_sf_dict = results[1]
     # Calculate enthalpies and outlet temperature for the water heating side
-    h_wh_in = CP.PropsSI('H', 'T', T_wh_in, 'P', p_wh, hs_fluid)
+    h_wh_in = CP.PropsSI('H', 'T', T_wh_in, 'P', p_wh, wh_fluid)
     h_wh_out = h_wh_in - (wf_mass_flow / wh_mass_flow) * (h_list[0] - h_list[-1])
-    T_wh_out = CP.PropsSI('T', 'H', h_wh_out, 'P', p_wh, hs_fluid)
+    T_wh_out = CP.PropsSI('T', 'H', h_wh_out, 'P', p_wh, wh_fluid)
     
     # Calculate enthalpies for the secondary fluid side
-    h_sf_in = CP.PropsSI('H', 'T', T_sf_dict['T_sf_in_r'], 'P', p_sf, hs_fluid)
-    h_sf_out = CP.PropsSI('H', 'T', T_sf_dict['T_sf_out_r'], 'P', p_sf, hs_fluid)
+    h_sf_in = CP.PropsSI('H', 'T', T_sf_dict["T_sf_in_r"], 'P', p_sf, sf_fluid)
+    h_sf_out = CP.PropsSI('H', 'T', T_sf_dict["T_sf_out_r"], 'P', p_sf, sf_fluid)
     
     # Calculate secondary fluid mass flow rate
-    sf_mass_flow = wf_mass_flow * (h_list[1] - h_list[3]) / (h_sf_out - h_sf_in)
+    sf_mass_flow =  results[2]["Q_h_dot"] * 1000 / (h_sf_out - h_sf_in)
 
     results = {
-        'wf_mass_flow': wf_mass_flow,
         'T_wh_out': T_wh_out,
         'sf_mass_flow': sf_mass_flow,
         'h_wh_in': h_wh_in,
@@ -1026,7 +1026,7 @@ def hp_sup_rec(fluid, T_sf_out, T_wh_in, T_pinch_sf_out, T_pinch_wh_in, T_pinch_
     H2_f_r = CP.PropsSI('H', 'P', P2_r, 'Q', 0, fluid)  # enthalpy if saturated liquid
     PH_2_r = CP.PhaseSI('P', P2_r, 'H', H2_r, fluid)
     X2_r = None
-    # check if compressor outlet is superheated or not
+    # check if compressor outlet is superheated or not, this is done by recuperator heating 
     H1r_sup, T1r_sup, S1r_sup, P1r_sup, PH_1r_sup, X1r_sup = [None] * 6
     T_sat_at_P2r = CP.PropsSI('T', 'P', P2_r, 'Q', 1, fluid)
 
@@ -1065,11 +1065,13 @@ def hp_sup_rec(fluid, T_sf_out, T_wh_in, T_pinch_sf_out, T_pinch_wh_in, T_pinch_
         print(f"X4_r: {X4_r:.4f}")
     PH_4_r = CP.PhaseSI('T', T4_r, 'S', S4_r, fluid)
 
-    # state after recuperator to condenser inlet
-    T23rec_r = T4_r + T_pinch_rec
+    # state after recuperator from condenser outlet
+    X23rec_r = 1
     P23rec_r = P2_r
-    H23rec_r = CP.PropsSI('H', 'P', P23rec_r, 'T', T23rec_r, fluid)
-    S23rec_r = CP.PropsSI('S', 'P', P23rec_r, 'T', T23rec_r, fluid)
+    T23rec_r = CP.PropsSI('T', 'P', P23rec_r, 'Q', X23rec_r, fluid) 
+    qua_rec = 0.5
+    H23rec_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', qua_rec, fluid)
+    S23rec_r = CP.PropsSI('S', 'P', P23rec_r, 'Q', qua_rec, fluid)
     H23recf_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', 0, fluid)  # enthalpy if saturated liquid
     H23grec_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', 1, fluid)  # enthalpy if saturated vapor
     PH_23rec_r = CP.PhaseSI('T', T23rec_r, 'P', P23rec_r, fluid)
@@ -1122,3 +1124,253 @@ def hp_sup_rec(fluid, T_sf_out, T_wh_in, T_pinch_sf_out, T_pinch_wh_in, T_pinch_
         "T_sf_out_r": T_sf_out_r,
         "T_sf_in_r": T_sf_in_r
     }
+
+
+def hp_rec_after_cds(fluid, T_sf_out, T_wh_in, T_pinch_sf_out, T_pinch_wh_in, T_pinch_sf_in, delta_sup, w_cpr_kw, eta_cpr=0.85):
+    # ideal case
+    # inlet compressor AND outlet evaporator
+    X1 = 1 # assumed saturated vapor 
+    T1 = T_wh_in + T_pinch_wh_in
+    P1 = CP.PropsSI('P', 'T', T1, 'Q', X1, fluid)
+    S1 = CP.PropsSI('S', 'T', T1, 'Q', X1, fluid)
+    H1 = CP.PropsSI('H', 'T', T1, 'Q', X1, fluid)
+    PH_1 = CP.PhaseSI('P', P1, 'Q', X1, fluid)
+
+    # outlet compressor AND inlet condenser (jadikan S,T sebagai guidance)
+    S2 = S1 # isentropic compression = 1 (ideal case)
+    T2 = T_sf_out - T_pinch_sf_out
+    P2 = CP.PropsSI('P', 'T', T2, 'S', S2, fluid)
+    H2 = CP.PropsSI('H', 'T', T2, 'S', S2, fluid)
+    H2_g = CP.PropsSI('H', 'T', T2, 'Q', 1, fluid) # enthalpy if saturated vapor
+    H2_f = CP.PropsSI('H', 'T', T2, 'Q', 0, fluid)  # enthalpy if saturated liquid
+
+    # --- TAMBAHKAN KODE DI BAWAH INI ---
+    H1_sup, T1_sup, S1_sup, P1_sup, PH_1_sup, X1_sup = [None] * 6
+    # Dapatkan temperatur saturasi (didih) pada tekanan P2
+    T_sat_at_P2 = CP.PropsSI('T', 'P', P2, 'Q', 1, fluid)
+
+    # Cek dan print status fasa di state 2
+    if T2 > T_sat_at_P2:
+        print(f"State 2 is SUPERHEATED. (T2: {T2:.2f} K > T_sat: {T_sat_at_P2:.2f} K)")
+    elif abs(T2 - T_sat_at_P2) < 0.01: # Toleransi kecil untuk floating point
+        print(f"State 2 is SATURATED. (T2: {T2:.2f} K ≈ T_sat: {T_sat_at_P2:.2f} K)")
+        P1_sup = P1
+        T1_sup = T1 + delta_sup
+        H1_sup = CP.PropsSI('H', 'T', T1_sup, 'P', P1_sup, fluid)
+        S1_sup = CP.PropsSI('S', 'T', T1_sup, 'P', P1_sup, fluid)
+        S2 = S1_sup
+        T2 = T_sf_out - T_pinch_sf_out
+        P2 = CP.PropsSI('P', 'T', T2, 'S', S2, fluid)
+        H2 = CP.PropsSI('H', 'T', T2, 'S', S2, fluid)
+    else:
+        print(f"State 2 is SUBCOOLED/COMPRESSED LIQUID. (T2: {T2:.2f} K < T_sat: {T_sat_at_P2:.2f} K)")
+    # outlet condenser AND inlet throttle valve
+    X3 = 0 # assumed saturated liquid
+    P3 = P2
+    T3 = CP.PropsSI('T', 'P', P3, 'Q', X3, fluid)
+    S3 = CP.PropsSI('S', 'P', P3, 'Q', X3, fluid)
+    H3 = CP.PropsSI('H', 'P', P3, 'Q', X3, fluid)
+    PH_3 = CP.PhaseSI('P', P3, 'Q', X3, fluid)
+
+
+    # default values biar aman
+    H23, T23, S23, P23, PH_23, X23 = [None] * 6  
+    if H2 > H2_g: #entering desuperheater
+        X23 = 1 
+        P23 = P3
+        T23 = CP.PropsSI('T', 'P', P23, 'Q', X23, fluid)
+        S23 = CP.PropsSI('S', 'P', P23, 'Q', X23, fluid)
+        H23 = CP.PropsSI('H', 'P', P23, 'Q', X23, fluid)
+        PH_23 = CP.PhaseSI('P', P23, 'Q', X23, fluid)
+    elif H2 < H2_f: # entering condenser as subcooled liquid
+        print("Warning: Subcooled liquid at condenser inlet. Adjust cycle parameters.")
+    else: # entering condenser as saturated mixture
+        X2 = (H2 - H2_f) / (H2_g - H2_f)
+
+    PH_2 = CP.PhaseSI('P', P2, 'S', S2, fluid)
+
+
+
+    # inlet evaporator AND outlet throttle valve (coba nanti compare guidancenya S,T)
+    S4 = S3 # isentropic expansion = 1 (ideal case)
+    T4 = T1
+    H4 = CP.PropsSI('H', 'S', S4, 'T', T4, fluid) # isenthalpic expansion, derived from energy balance in throttle valve
+    #T4 = CP.PropsSI('T', 'S', S4, 'H', H4, fluid)
+    #S4 = CP.PropsSI('S', 'S', S4, 'H', H4, fluid)
+    P4 = CP.PropsSI('P', 'S', S4, 'T', T4, fluid)
+    #H4 = CP.PropsSI('H', 'P', P4, 'S', S4, fluid)
+    H4_g = CP.PropsSI('H', 'T', T4, 'Q', 1, fluid) # enthalpy if saturated vapor
+    H4_f = CP.PropsSI('H', 'T', T4, 'Q', 0, fluid)  # enthalpy if saturated liquid
+    if H4 < H4_f or H4 > H4_g:
+        pass
+    else:
+        X4 = (H4 - H4_f) / (H4_g - H4_f)
+
+    PH_4 = CP.PhaseSI('P', P4, 'S', S4, fluid)
+
+    # real case indexing
+    # 1 outlet EVA AND inlet REC to CPR
+    # 1_sup outlet REC to CPR 
+    # 2 outlet CPR to CDS
+    # 23 outlet DESUP (sat vapor)
+    # 3_rec outlet CDS to REC (twophase)
+    # 3 outlet REC to TRV (sat liquid)
+    # 4 outlet TRV to EVA (twophase)
+
+
+    # real case
+    X1_r = 1 # assumed saturated vapor
+    T1_r = T1 - 1
+    P1_r = CP.PropsSI('P', 'T', T1_r, 'Q', X1_r, fluid)
+    S1_r = CP.PropsSI('S', 'T', T1_r, 'Q', X1_r, fluid)
+    H1_r = CP.PropsSI('H', 'T', T1_r, 'Q', X1_r, fluid)
+    PH_1_r = CP.PhaseSI('P', P1_r, 'Q', X1_r, fluid)
+    # outlet condenser
+    X3_r = 0 # assumed saturated liquid
+    T3_r = T3 - 1
+    P3_r = CP.PropsSI('P', 'T', T3_r, 'Q', X3_r, fluid)
+    S3_r = CP.PropsSI('S', 'T', T3_r, 'Q', X3_r, fluid)
+    H3_r = CP.PropsSI('H', 'T', T3_r, 'Q', X3_r, fluid)
+    PH_3_r = CP.PhaseSI('P', P3_r, 'Q', X3_r, fluid)
+    # outlet desup
+    X23_r = 1
+    P23_r = 1.01 * P3_r
+    T23_r = CP.PropsSI('T', 'P', P23_r, 'Q', X23_r, fluid)
+    S23_r = CP.PropsSI('S', 'P', P23_r, 'Q', X23_r, fluid)
+    H23_r = CP.PropsSI('H', 'P', P23_r, 'Q', X23_r, fluid)
+    PH_23_r = CP.PhaseSI('P', P23_r, 'Q', X23_r, fluid)
+
+    #outlet compressor
+    P2_r = 1.02 * P3_r
+    S2s_r = S1_r # isentropic compression
+    H2s_r = CP.PropsSI('H', 'P', P2_r, 'S', S2s_r, fluid)
+    H2_r = H1_r + (H2s_r - H1_r) / eta_cpr
+    S2_r = CP.PropsSI('S', 'P', P2_r, 'H', H2_r, fluid)
+    T2_r = CP.PropsSI('T', 'P', P2_r, 'H', H2_r, fluid)
+    #H2_r = CP.PropsSI('H', 'P', P2_r, 'S', S2_r, fluid)
+    H2_g_r = CP.PropsSI('H', 'P', P2_r, 'Q', 1, fluid) # enthalpy if saturated vapor
+    H2_f_r = CP.PropsSI('H', 'P', P2_r, 'Q', 0, fluid)  # enthalpy if saturated liquid
+    PH_2_r = CP.PhaseSI('P', P2_r, 'H', H2_r, fluid)
+    X2_r = None
+    # check if compressor outlet is superheated or not, this is done by recuperator heating 
+    H1r_sup, T1r_sup, S1r_sup, P1r_sup, PH_1r_sup, X1r_sup = [None] * 6
+    T_sat_at_P2r = CP.PropsSI('T', 'P', P2_r, 'Q', 1, fluid)
+
+    if T2_r > T_sat_at_P2r and H2_r > H2_g_r:
+        print(f"State 2_r is SUPERHEATED. (T2_r: {T2_r:.2f} K > T_sat: {T_sat_at_P2r:.2f} K)")
+    elif H2_f_r < H2_r < H2_g_r: # Toleransi kecil untuk floating point
+        print(f"State 2_r is SATURATED. (T2_r: {T2_r:.2f} K ≈ T_sat: {T_sat_at_P2r:.2f} K)")
+        print(f"Needs superheater before compressor.")
+        P1r_sup = P1_r
+        T1r_sup = T1_r + delta_sup
+        H1r_sup = CP.PropsSI('H', 'T', T1r_sup, 'P', P1r_sup, fluid)
+        S1r_sup = CP.PropsSI('S', 'T', T1r_sup, 'P', P1r_sup, fluid)
+        PH_1r_sup = CP.PhaseSI('P', P1r_sup, 'T', T1r_sup, fluid)
+        S2s_r = S1r_sup
+        P2_r = P3_r
+        H2s_r = CP.PropsSI('H', 'P', P2_r, 'S', S2s_r, fluid)
+        H2_r = H1r_sup + (H2s_r - H1r_sup) / eta_cpr
+        S2_r = CP.PropsSI('S', 'P', P2_r, 'H', H2_r, fluid)
+        T2_r = CP.PropsSI('T', 'P', P2_r, 'H', H2_r, fluid)
+        PH_2_r = CP.PhaseSI('P', P2_r, 'H', H2_r, fluid)
+    else:
+        print(f"State 2_r is SUBCOOLED/COMPRESSED LIQUID. (T2_r: {T2_r:.2f} K < T_sat: {T_sat_at_P2r:.2f} K)")
+    
+    #outlet throttle valve
+    P4_r = 1.01 * P1_r #guidance nya T aja ini T1_r + 1 = T4_r
+    H4_r = H3_r
+    T4_r = CP.PropsSI('T', 'P', P4_r, 'H', H4_r, fluid)
+    S4_r = CP.PropsSI('S', 'P', P4_r, 'H', H4_r, fluid)
+    H4_g_r = CP.PropsSI('H', 'P', P4_r, 'Q', 1, fluid) # enthalpy if saturated vapor
+    H4_f_r = CP.PropsSI('H', 'P', P4_r, 'Q', 0, fluid)  # enthalpy if saturated liquid
+    if H4_r < H4_f_r:
+        print("Warning: Out of saturation region at evaporator inlet. Adjust cycle parameters.")
+    elif H4_f_r < H4_r < H4_g_r:
+        print("Entering saturated mixture at recuperator inlet in real case")
+        X4_r = (H4_r - H4_f_r) / (H4_g_r - H4_f_r)
+        print(f"X4_r: {X4_r:.4f}")
+    PH_4_r = CP.PhaseSI('T', T4_r, 'S', S4_r, fluid)
+
+    # state 3_rec, inlet REC to TRV
+    H3rec_r = H1r_sup + H3_r - H1_r
+    P3rec_r = 1.01 * P3_r
+    T3rec_r = CP.PropsSI('T', 'P', P3rec_r, 'H', H3rec_r, fluid)
+    S3rec_r = CP.PropsSI('S', 'P', P3rec_r, 'H', H3rec_r, fluid)
+    X3rec_r = CP.PropsSI('Q', 'P', P3rec_r, 'H', H3rec_r, fluid)
+    PH_3rec_r = CP.PhaseSI('H', H3rec_r, 'P', P3rec_r, fluid)
+    # # state after recuperator from condenser outlet
+    # X23rec_r = 1
+    # P23rec_r = P2_r
+    # T23rec_r = CP.PropsSI('T', 'P', P23rec_r, 'Q', X23rec_r, fluid) 
+    # qua_rec = 0.5
+    # H23rec_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', qua_rec, fluid)
+    # S23rec_r = CP.PropsSI('S', 'P', P23rec_r, 'Q', qua_rec, fluid)
+    # H23recf_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', 0, fluid)  # enthalpy if saturated liquid
+    # H23grec_r = CP.PropsSI('H', 'P', P23rec_r, 'Q', 1, fluid)  # enthalpy if saturated vapor
+    # PH_23rec_r = CP.PhaseSI('T', T23rec_r, 'P', P23rec_r, fluid)
+    # # check if state after recuperator is still superheated or not
+    # H23_r, T23_r, S23_r, P23_r, PH_23_r, X23_r = [None] * 6
+    # T23rec_sat_at_P23rec = CP.PropsSI('T', 'P', P23rec_r, 'Q', 1, fluid)
+    # print(f"Saturation temperature at P23rec_r ({P23rec_r:.2f} Pa) is {T23rec_sat_at_P23rec:.2f} K")
+    # if T23rec_r > T23rec_sat_at_P23rec and H23rec_r > H23grec_r:
+    #     print(f"State after recuperator is SUPERHEATED. (T23rec_r: {T23rec_r:.2f} K > T_sat: {T23rec_sat_at_P23rec:.2f} K)")
+    #     print(f"Needs Desuperheater after recuperator.")
+    #     X23_r = 1
+    #     P23_r = 1.01 * P3_r
+    #     T23_r = CP.PropsSI('T', 'P', P23_r, 'Q', X23_r, fluid)
+    #     S23_r = CP.PropsSI('S', 'P', P23_r, 'Q', X23_r, fluid)
+    #     H23_r = CP.PropsSI('H', 'P', P23_r, 'Q', X23_r, fluid)
+    #     PH_23_r = CP.PhaseSI('P', P23_r, 'Q', X23_r, fluid)
+    # elif H23recf_r < H23rec_r < H23grec_r:
+    #     print(f"State after recuperator is SATURATED MIXTURE. (H23rec_r between H_f and H_g)")
+    #     print(f"Doesn't need Desuperheater after recuperator. Direct to condenser (State 3).")
+    #     X23rec_r = (H23rec_r - H23recf_r) / (H23grec_r - H23recf_r)
+    # elif H23rec_r < H23recf_r:
+    #     print("Warning: Subcooled liquid at condenser inlet after recuperator. Adjust cycle parameters.")
+    # state after recuperator to evaporator inlet
+    # P41rec_r = P1_r
+    # H41rec_r = H2_r + H4_r - H23rec_r
+    # T41rec_r = CP.PropsSI('T', 'P', P41rec_r, 'H', H41rec_r, fluid)
+    # S41rec_r = CP.PropsSI('S', 'P', P41rec_r, 'H', H41rec_r, fluid)
+    # PH41rec_r = CP.PhaseSI('T', T41rec_r, 'P', P41rec_r, fluid)
+    # X41rec_r = CP.PropsSI('Q', 'P', P41rec_r, 'H', H41rec_r, fluid)
+
+    # Packing all real states (index: 1, 2, 23, 3, 4)
+    H_list_r = [H1_r, H1r_sup, H2_r, H23_r,  H3rec_r, H3_r,H4_r]
+    S_list_r = [S1_r, S1r_sup, S2_r, S23_r,  S3rec_r, S3_r, S4_r]
+    T_list_r = [T1_r, T1r_sup, T2_r, T23_r, T3rec_r, T3_r, T4_r]
+    P_list_r = [P1_r, P1r_sup, P2_r, P23_r,  P3rec_r, P3_r, P4_r]
+    X_list_r = [X1_r, X1r_sup, X2_r, X23_r,  X3rec_r, X3_r, X4_r if 'X4_r' in locals() else None]
+    PH_list_r = [PH_1_r, PH_1r_sup, PH_2_r,  PH_23_r, PH_3rec_r, PH_3_r,  PH_4_r]
+
+    # Secondary Fluid Temperature
+    T_sf_out_r = T2_r + T_pinch_sf_out
+    T_sf_in_r = T3_r + T_pinch_sf_in
+
+    # mass flow rate calculation kg/s
+    wf_mass_flow = w_cpr_kw * 1000/ (H_list_r[2] - H_list_r[1])
+
+    # COP HP calculation
+    Q_h = H_list_r[2] - H_list_r[-3]
+    W_in = H_list_r[2] - H_list_r[1]
+    COP_hp = Q_h / W_in
+
+    # heat flow to hot space kW
+    Q_h_dot = Q_h * wf_mass_flow / 1000  # in kW
+
+    # heat absorbed from cold space kW
+    Q_l_dot = Q_h_dot - w_cpr_kw # in kW
+
+    return  {
+        "H_r": H_list_r,
+        "S_r": S_list_r,
+        "T_r": T_list_r,
+        "P_r": P_list_r,
+        "X_r": X_list_r,
+        "PH_r": PH_list_r
+    }, {
+        "T_sf_out_r": T_sf_out_r,
+        "T_sf_in_r": T_sf_in_r
+    }, {"wf_mass_flow": wf_mass_flow, "COP_hp": COP_hp, 
+        "Q_h_dot": Q_h_dot, "Q_l_dot": Q_l_dot
+        }
