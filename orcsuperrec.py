@@ -14,7 +14,7 @@ State list indexing for ORC Superheated Recuperated:
 41rec - Outlet of REC to LH
 """
 
-def orcsuperrec(fluid, hs_fluid, cs_fluid, T_hs_in, T_cs_in, T_pinch_hs_in, T_pinch_hs_mid1, T_estimation_hs, T_estimation_cs, T_pinch_cs_mid1, eta_exp, eta_pmp, T_pinch_rec, p_hs_in, p_cs_in):
+def orcsuperrec(fluid, hs_fluid, cs_fluid, T_hs_in, T_cs_in, T_pinch_hs_in, T_pinch_hs_mid1, T_estimation_hs, T_estimation_cs, T_pinch_cs_mid1, eta_exp, eta_pmp, T_pinch_rec, p_hs_in, p_cs_in, wf_mass_flow):
     """Simulates a superheated and recuperated Organic Rankine Cycle (ORC).
 
     This function models an ORC, determining key thermodynamic states and performance metrics. It's designed for cycle analysis and optimization, considering component efficiencies and heat exchanger pinch points.
@@ -35,6 +35,7 @@ def orcsuperrec(fluid, hs_fluid, cs_fluid, T_hs_in, T_cs_in, T_pinch_hs_in, T_pi
         T_pinch_rec (float): Pinch point temperature difference in the recuperator [K].
         p_hs_in (float): Inlet pressure of the heat source [Pa].
         p_cs_in (float): Inlet pressure of the cold source [Pa].
+        wf_mass_flow (float): Mass flow rate of the working fluid [kg/s].
 
     Returns:
         tuple: A tuple containing:
@@ -193,28 +194,33 @@ def orcsuperrec(fluid, hs_fluid, cs_fluid, T_hs_in, T_cs_in, T_pinch_hs_in, T_pi
     S41rec_r = CP.PropsSI('S', 'P', P41rec_r, 'H', H41rec_r, fluid)
     T41rec_r = CP.PropsSI('T', 'P', P41rec_r, 'H', H41rec_r, fluid)
 
+    # Calculating hs mass flow
+    p_hs_out = 0.97 * p_hs_in # Assume 3% pressure drop in heat source
+    p_hs_mid1 = 0.98 * p_hs_in # Assume 2% pressure drop in heat source
+    h_hs_mid1 = CP.PropsSI('H', 'P', p_hs_mid1, 'T', T_hs_mid1, hs_fluid)
+    h_hs_in = CP.PropsSI('H', 'T', T_hs_in, 'P', p_hs_in, hs_fluid)
+    hs_mass_flow = (wf_mass_flow * (H1_sup_r - H0_r)) / (h_hs_in - h_hs_mid1)
     # Calculating T_hs_mid2
     p_hs_mid2 = 0.99 * p_hs_in # Assume 1% pressure drop in heat source
-    h_hs_in = CP.PropsSI('H', 'T', T_hs_in, 'P', p_hs_in, hs_fluid)
     # Energy Balance in Superheater
-    h_hs_mid2 = (h_hs_in + H1_r) - H1_sup_r
+    h_hs_mid2 = h_hs_in - ((wf_mass_flow * (H1_sup_r - H1_r)) / hs_mass_flow)
     T_hs_mid2 = CP.PropsSI('T', 'P', p_hs_mid2, 'H', h_hs_mid2, hs_fluid)
     # Calculating T_hs_out
-    p_hs_out = 0.97 * p_hs_mid2 # Assume 3% pressure drop in heat source
-    p_hs_mid1 = 0.98 * p_hs_out # Assume 2% pressure drop in heat source
-    h_hs_mid1 = CP.PropsSI('H', 'P', p_hs_mid1, 'T', T_hs_mid1, hs_fluid)
+
     # Energy Balance in Liquid Heater
-    h_hs_out = (H41rec_r + h_hs_mid1) - H0_r
+    h_hs_out = h_hs_mid1 - ((wf_mass_flow * (H0_r - H41rec_r)) / hs_mass_flow)
     T_hs_out = CP.PropsSI('T', 'P', p_hs_out, 'H', h_hs_out, hs_fluid)
-    # Calculating T_cs_out
-    p_cs_out = 0.98 * p_cs_in # Assume 2% pressure drop in cold source
-    h_cs_in = CP.PropsSI('H', 'T', T_cs_in, 'P', p_cs_in, cs_fluid)
-    # Energy Balance in Desuperheater and Condenser
-    h_cs_out = (h_cs_in + H23rec_r) - H3_r
-    T_cs_out = CP.PropsSI('T', 'P', p_cs_out, 'H', h_cs_out, cs_fluid)
-    # Preparing H_cs_mid1
-    p_cs_mid1 = 0.99 * p_cs_out # Assume 1% pressure drop in cold source
+    # Calculating cs mass flow
+    p_cs_mid1 = 0.99 * p_cs_in # Assume 1% pressure drop in cold source
     h_cs_mid1 = CP.PropsSI('H', 'P', p_cs_mid1, 'T', T_cs_mid1, cs_fluid)
+    h_cs_in = CP.PropsSI('H', 'T', T_cs_in, 'P', p_cs_in, cs_fluid)
+    cs_mass_flow = (wf_mass_flow * (H23rec3_r - H3_r)) / (h_cs_mid1 - h_cs_in)
+    p_cs_out = 0.98 * p_cs_in # Assume 2% pressure drop in cold source
+    # Energy Balance in Desuperheater and Condenser
+    h_cs_out = (wf_mass_flow * (H23rec_r - H3_r) / cs_mass_flow) + h_cs_in
+    T_cs_out = CP.PropsSI('T', 'P', p_cs_out, 'H', h_cs_out, cs_fluid)
+
+
 
 
     H_is = [H0, H1, H1_sup, H2, H23rec, H23rec3, H3, H4, H41rec]
