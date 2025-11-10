@@ -1,6 +1,4 @@
-Here is a professional `README.md` file for your GitHub repository, based on the code you've provided.
 
------
 
 # Carnot Battery (CB) Thermodynamic Simulation
 
