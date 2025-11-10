@@ -5,6 +5,42 @@ import matplotlib.pyplot as plt
 import CoolProp.CoolProp as CP
 import orcsuperrec as osr
 import copy  # For optimization
+import printer as prt
+
+orc_labels = [
+    "0 Evaporator Inlet",
+    "1 Superheater Inlet",
+    "1_sup Expander Inlet",
+    "2 Desuperheater Inlet",
+    "23rec (Recup. Hot Out)",
+    "23rec3 Desuperheater Outlet",
+    "3 Pump Inlet",
+    "4 Recuperator Cold Inlet",
+    "41rec (Recup. Cold Out)"
+]
+
+heat_pump_state_labels = [
+    # State 1: Between Evaporator and Recuperator (Cold Side)
+    "1 (EVA out, REC cold in)",
+    
+    # State 1_sup: Between Recuperator (Cold Side) and Compressor
+    "1_sup (REC cold out, CPR in)",
+    
+    # State 2: Between Compressor and Condenser
+    "2 (CPR out, CDS in)",
+    
+    # State 23: Inside Condenser (end of desuperheating)
+    "23 (CDS desup. out, Sat. Vapor)",
+    
+    # State 3_rec: Between Condenser and Recuperator (Hot Side)
+    "3_rec (CDS out, REC hot in)",
+    
+    # State 3: Between Recuperator (Hot Side) and TRV
+    "3 (REC hot out, TRV in)",
+    
+    # State 4: Between TRV and Evaporator
+    "4 (TRV out, EVA in)"
+]
 
 # -----------------------------------------------------------------
 # --- Helper Functions
@@ -68,6 +104,12 @@ def run_simulation(params):
         h_sf_in = wh_out_results['h_sf_in']
         h_sf_out = wh_out_results['h_sf_out']
         sf_mass_flow = wh_out_results['sf_mass_flow']
+        T_wh_out = wh_out_results['T_wh_out']
+        T_wh_dict = {"T_wh_out": T_wh_out, "T_wh_in": params["T_wh"] + 273.15}
+        T_sf_dict = hp_results[1]
+        prt.print_temperature_table(T_wh_dict, {"T_wh_out": "Water Heater Outlet", "T_wh_in": "Water Heater Inlet"}, title="Waste Heat Temperatures")
+        prt.print_temperature_table(T_sf_dict, {"T_sf_out_r": "Secondary Fluid Outlet", "T_sf_in_r": "Secondary Fluid Inlet"}, title="Secondary Fluid Temperatures")
+        print(f"TES melting Temperature: {params['T_melting']} °C")
         heat_rate_to_tes_W = sf_mass_flow * (h_sf_out - h_sf_in)
 
         # 3. --- Calculate TES Charging Time ---
@@ -95,12 +137,17 @@ def run_simulation(params):
             "eta_pmp": params["eta_pmp"],
             "T_pinch_rec": params["T_pinch_rec"],
             "p_hs_in": params["p_hs"],
-            "p_cs_in": params["p_cs"]
+            "p_cs_in": params["p_cs"],
+            "wf_mass_flow": params["orc_mass_flow_assumption"], # Fixed assumption as per original script
         }
         
         # Run ORC calculation
         orc_full_results = osr.orcsuperrec(**orc_inputs)
-        
+
+        T_hs_dict = orc_full_results[2]
+        T_cs_dict = orc_full_results[3]
+        prt.print_temperature_table(T_hs_dict, {"T_hs_in": "Hot Source Inlet", "T_hs_out": "Hot Source Outlet", "T_hs_mid1": "Hot Source Midpoint 1","T_hs_mid2": "Hot Source Midpoint 2"}, title="ORC Hot Source Temperatures")
+        prt.print_temperature_table(T_cs_dict, {"T_cs_in": "Cold Source Inlet", "T_cs_out": "Cold Source Outlet","T_cs_mid1": "Cold Source Midpoint 1"}, title="ORC Cold Source Temperatures")
         # Note: 'orc_mass_flow_assumption' was 10 in your original script.
         # It's now an explicit parameter.
         orc_thermo_results = osr.calc_thermal_efficiency(
@@ -258,7 +305,8 @@ if __name__ == "__main__":
         print(f"Heat Rate to TES: {results['Heat_Rate_to_TES_W'] / 1e6:.2f} MW")
         print(f"TES Mass: {results['Mass_TES_kg']:.2f} kg")
         print(f"Secondary Fluid Mass Flow: {results['SF_Mass_Flow_kgs']:.4f} kg/s")
-        
+        prt.print_state_point_table(results["ORC_Results_Raw"][1], orc_labels, title="ORC Superheat-Recuperated Cycle State Points")
+        prt.print_state_point_table(results["HP_Results_Raw"][0], heat_pump_state_labels, title="Heat Pump Cycle State Points")
         # 4. Plot the results
         plot_hp_cycle(results["HP_Results_Raw"], default_params["wf_hp"])
         plot_orc_cycle(results["ORC_Results_Raw"], default_params["cycle_hp"])
