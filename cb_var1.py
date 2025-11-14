@@ -46,19 +46,30 @@ heat_pump_state_labels = [
 # --- Helper Functions
 # -----------------------------------------------------------------
 
-def calculate_tes_charging(heat_rate_to_tes, fusion_heat, volume_tes, tes_density):
+def calculate_tes_charging(heat_rate_to_tes, fusion_heat, volume_tes, tes_density, heat_rate_demand):
     """
     Calculates TES mass and charging time based on heat input.
     (This is the refactored 'tes_mass_calc' function from your script)
+    Accepts:
+        heat_rate_to_tes (W): Heat rate being supplied to the TES.
+        fusion_heat (J/kg): Latent heat of fusion of the TES material.
+        volume_tes (m3): Volume of the TES.
+        tes_density (kg/m3): Density of the TES material.
+        heat_rate_demand (W): Required heat rate from discharging cycle.
+    Returns:
+        mass_tes (kg): Mass of the TES.
+        charging_time_hr (hours): Time required to charge the TES.
     """
     mass_tes = volume_tes * tes_density  # kg
     tes_energy = mass_tes * fusion_heat  # J
+
+    discharging_time = tes_energy / heat_rate_demand  # s
     
     if heat_rate_to_tes <= 0:
         return mass_tes, float('inf') # Avoid division by zero
         
     charging_time_s = tes_energy / heat_rate_to_tes  # s
-    return mass_tes, charging_time_s / 3600 # hours
+    return mass_tes, charging_time_s / 3600, discharging_time / 3600  # hours
 
 # -----------------------------------------------------------------
 # --- Main Simulation Function
@@ -112,15 +123,9 @@ def run_simulation(params):
         print(f"TES melting Temperature: {params['T_melting']} °C")
         heat_rate_to_tes_W = sf_mass_flow * (h_sf_out - h_sf_in)
 
-        # 3. --- Calculate TES Charging Time ---
-        mass_tes, charging_time_hr = calculate_tes_charging(
-            heat_rate_to_tes_W,
-            params["fusion_heat"],
-            params["volume_tes"],
-            params["tes_density"]
-        )
 
-        # 4. --- Prepare and Run ORC Simulation ---
+
+        # 3. --- Prepare and Run ORC Simulation ---
         # Build the input dictionary from the main params
         orc_inputs = {
             "fluid": params["cycle_hp"],
@@ -140,9 +145,20 @@ def run_simulation(params):
             "p_cs_in": params["p_cs"],
             "wf_mass_flow": params["orc_mass_flow_assumption"], # Fixed assumption as per original script
         }
-        
         # Run ORC calculation
         orc_full_results = osr.orcsuperrec(**orc_inputs)
+
+
+        # 4. --- Calculate TES Charging Time ---
+        mass_tes, charging_time_hr, discharge_time_hr = calculate_tes_charging(
+            heat_rate_to_tes_W,
+            params["fusion_heat"],
+            params["volume_tes"],
+            params["tes_density"],
+            orc_full_results[5]["Q_demand_hs"]
+        )
+        
+
 
         T_hs_dict = orc_full_results[2]
         T_cs_dict = orc_full_results[3]
@@ -168,6 +184,7 @@ def run_simulation(params):
             "Eta_Thermal_ORC": eta_thermal_orc,
             "Heat_Rate_to_TES_W": heat_rate_to_tes_W,
             "Mass_TES_kg": mass_tes,
+            "TES_Discharging_Time_hr": discharge_time_hr,
             "SF_Mass_Flow_kgs": sf_mass_flow,
             "HP_Results_Raw": hp_results,        # For plotting
             "ORC_Results_Raw": orc_full_results,  # For plotting
@@ -255,7 +272,7 @@ if __name__ == "__main__":
         "cpr_pwr": 100,        # kW
         "wf_hp": "Toluene",
         "eta_cpr": 0.75,
-        "delta_sup": 30,
+        "delta_sup": 25,
         
         # TES
         "T_melting": 200,      # °C, Kenisarin, 2009
@@ -304,6 +321,7 @@ if __name__ == "__main__":
         print(f"ORC Thermal Efficiency: {results['Eta_Thermal_ORC']:.4f}")
         print(f"Heat Rate to TES: {results['Heat_Rate_to_TES_W'] / 1e6:.2f} MW")
         print(f"TES Mass: {results['Mass_TES_kg']:.2f} kg")
+        print(f"TES discharging Time: {results['TES_Discharging_Time_hr']:.4f} hours")
         print(f"Secondary Fluid Mass Flow: {results['SF_Mass_Flow_kgs']:.4f} kg/s")
         prt.print_state_point_table(results["ORC_Results_Raw"][1], orc_labels, title="ORC Superheat-Recuperated Cycle State Points")
         prt.print_state_point_table(results["HP_Results_Raw"][0], heat_pump_state_labels, title="Heat Pump Cycle State Points")
